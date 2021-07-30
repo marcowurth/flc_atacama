@@ -7,17 +7,13 @@
 ###  Tested with Python 3.9 and Fedora Linux                                                                         ###
 ###  Non-standard packages needed: distributed, boto3, xarray, netcdf4                                               ###
 ###                                                                                                                  ###
-###  Any download needs two strings called aws_access_key_id and aws_secret_access_key to be in a file               ###
-###   at /home/username/.aws/credentials and also setting the AWS Region to us-east-1 in a file                      ###
-###   at /home/username/.aws/config                                                                                  ###
-###                                                                                                                  ###
 ###  Usage:                                                                                                          ###
 ###   1) Execute in terminal folder>python download_abi.py                                                           ###
 ###   2) Via import of download_abi_files or download_single_abi_file from another script                            ###
 ###                                                                                                                  ###
 ###  Known bugs: There is an issue with boto3 and parallelization that sometimes leads                               ###
 ###   to KeyError('endpoint_resolver') or KeyError('credential_provider') but if download_retries_per_file > 1       ###
-###   it will most probably work on the next retry of the thread and download all files succesfully in the end       ###
+###   it will most probably work on the next retry of the thread and download all files successfully in the end      ###
 ###                                                                                                                  ###
 ########################################################################################################################
 
@@ -27,9 +23,11 @@ import time
 import datetime
 import fnmatch
 
-import distributed      # provides parallelization features, see distributed.dask.org/en/latest
-import boto3            # provides access to the Amazon Simple Storage Service (Amazon S3)
-import xarray as xr     # provides interface for reading, manipulation and writing of netcdf files
+import distributed                      # provides parallelization features, see distributed.dask.org/en/latest
+from boto3 import resource              # provides access to the Amazon Simple Storage Service (Amazon S3)
+from botocore import UNSIGNED
+from botocore.config import Config
+import xarray as xr                     # provides interface for reading, manipulation and writing of netcdf files
 
 base_path = ''
 sys.path.append(base_path + 'scripts')
@@ -39,11 +37,11 @@ def main():
 
     # parallelization settings #
 
-    #distributed_exec = False
-    distributed_exec = True
+    distributed_exec = False
+    #distributed_exec = True
 
-    num_max_parallel_tasks = 8
     #num_max_parallel_tasks = 24
+    num_max_parallel_tasks = 8
     download_retries_per_file = 3
 
 
@@ -59,8 +57,8 @@ def main():
 
     #region = 'fulldisk'
     #region = 'ssa'
-    #region = 'atacama'
-    region = 'atacama_squared'  # this extends the rectangular atacama region to the west and east
+    region = 'atacama'
+    #region = 'atacama_squared'  # this extends the rectangular atacama region to the west and east
 
 
     # get latest available image time #
@@ -91,7 +89,7 @@ def main():
     #month = 4
     days = [25]
     #days = list(range(1, 31))
-    #hours = list(range(0, 10))
+    #hours = list(range(0, 6))
     #hours = list(range(12, 17))
     #minutes = list(range(0, 60, 10))
     hours = [17]
@@ -102,9 +100,9 @@ def main():
 
     #bands = [2,5,6,7,8,10,13]
     #bands = [5,6,7,8,10]
-    #bands = [13]
-    #bands = [2, 3]
-    bands = list(range(1, 16+1))
+    bands = [7, 13]
+    #bands = [11, 15]
+    #bands = list(range(1, 16+1))
 
 
     download_abi_files(base_path, distributed_exec, num_max_parallel_tasks, download_retries_per_file,
@@ -152,7 +150,7 @@ def download_abi_files(base_path, distributed_exec, num_max_parallel_tasks, down
             futures = []
             for date_band in sub_date_band:
                 futures.append(client.submit(download_single_abi_file, base_path, product, date_band[0], date_band[1],
-                                             region, retries = download_retries_per_file))
+                                             region, distributed_exec, retries = download_retries_per_file))
             distributed.wait(futures)
             all_tasks += futures
 
@@ -200,7 +198,7 @@ def download_abi_files(base_path, distributed_exec, num_max_parallel_tasks, down
                     for band in bands:
                         date_load = datetime.datetime(year, month, day, hour, minute)
                         print('load:'.ljust(8), date_load)
-                        download_single_abi_file(base_path, product, date_load, band, region)
+                        download_single_abi_file(base_path, product, date_load, band, region, distributed_exec)
 
 
     return
@@ -209,7 +207,7 @@ def download_abi_files(base_path, distributed_exec, num_max_parallel_tasks, down
 ############################################################################
 ############################################################################
 
-def download_single_abi_file(base_path, product_fullname, date, band, region):
+def download_single_abi_file(base_path, product_fullname, date, band, region, distributed_exec):
 
     # cut the mesoscale sector number #
 
@@ -230,7 +228,11 @@ def download_single_abi_file(base_path, product_fullname, date, band, region):
     match_string = '*{}-M6C{:02d}_G16_s{:4d}{:03d}{:02d}{:02d}*'.format(
                     product_fullname, band, date.year, dayofyear, date.hour, date.minute)
 
-    s3 = boto3.resource('s3')
+    if distributed_exec:
+        s3 = resource('s3')
+    else:
+        s3 = resource('s3', config = Config(signature_version = UNSIGNED))
+
     noaa_bucket = s3.Bucket('noaa-goes16')
     file_list = []
     for object in noaa_bucket.objects.filter(Prefix = subfolder):

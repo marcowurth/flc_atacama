@@ -34,8 +34,8 @@ def plot_abi():
 
     #region = 'fulldisk'
     #region = 'ssa'
-    #region = 'atacama'
-    region = 'atacama_squared'
+    region = 'atacama'
+    #region = 'atacama_squared'
 
 
     # get latest available image time #
@@ -87,7 +87,7 @@ def plot_abi():
     # set bands combinations #
 
     # single_band mode: list of numbers, possible 1-16 #
-    bands = [13]
+    bands = [7, 13]
     #bands = list(range(1, 6+1))
 
     # band_difference mode: list of tuples of numbers, (13, 7) means B13-B07 will be plotted #
